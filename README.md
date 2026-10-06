@@ -34,6 +34,18 @@ base / L* / TTT table.
 `tests/test_masking_qwen3_template.py` checks the loss masks against the real
 Qwen3 chat template (template file from llama.cpp `models/templates/`).
 
+## Gemini with visible reasoning (one command)
+
+```bash
+gcloud auth login && gcloud auth application-default login
+PROJECT=my-proj BUCKET=my-bucket ./scripts/run_gemini.sh
+```
+
+This tunes gemini-3.5-flash on the L* and TTT `thought` datasets in parallel,
+evaluates the untuned base model and both tuned endpoints (thought scaffold,
+thinking MINIMAL), and prints the comparison table. Tuning and inference are
+billed to PROJECT.
+
 ## Quick start
 
 ```bash
