@@ -35,7 +35,8 @@ class CharTok:
             s += "<think>\n"
         return self.encode(s) if tokenize else s
 
-    SPECIAL = {"<|im_start|>": 0x110000, "<|im_end|>": 0x110001}
+    # as in the real Qwen3 / Qwen3.5 vocabularies, these are single tokens
+    SPECIAL = {"<|im_start|>": 0x110000, "<|im_end|>": 0x110001, "<think>": 0x110002, "</think>": 0x110003}
     INV = {v: k for k, v in SPECIAL.items()}
 
     def encode(self, s):
@@ -78,7 +79,10 @@ def main(template_path, data_dir):
             prompt = CharTok.decode(None, [t for t, l in zip(ex["input_ids"], ex["labels"]) if l == -100])
             for m in msgs[:-1]:
                 assert "reasoning_content" not in m
-            assert "<think>\n" not in prompt.replace("<think>\n\n</think>", "") or force, "old reasoning in prompt"
+            for m in rec["messages"]:
+                r = m.get("reasoning_content")
+                if r and len(r) > 40:
+                    assert r not in prompt, "an earlier turn's reasoning leaked into the prompt"
         print(f"force_think_prompt={force}: {len(exs)} per-turn examples OK; supervised span starts:",
               repr(labeled_text(train.tokenize_last_turn(tok, exs[0], {}, 10 ** 9))[:60]))
 

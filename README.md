@@ -23,16 +23,30 @@ git clone <this repo> && cd <repo>
 ```
 
 Stages and knobs are environment variables (`STAGES`, `TEACHERS`, `MODEL`,
-`EPOCHS`, `MQ_TURNS`, `NGPU`, ...; see the script header). Defaults are
-Qwen/Qwen3-4B-Thinking-2507, 1 epoch, rank-32 LoRA, served with vLLM's `qwen3`
-reasoning parser and evaluated with the `think` scaffold. Expect about 80M
-training tokens per epoch per teacher, roughly 4–5 h/epoch on one H100. The data
-is regenerated on the VM (about 2 min) and checked against
+`EPOCHS`, `MQ_TURNS`, `NGPU`, ...; see the script header). Defaults:
+
+* **Model:** Qwen/Qwen3.5-4B, which thinks by default (`MODEL=Qwen/Qwen3.5-9B`
+  also works). Training uses its text-only class; vLLM serves it with
+  `--language-model-only` and the `qwen3` reasoning parser.
+* **LoRA:** rank 32, 1 epoch. Targets cover the attention, MLP *and* Gated
+  DeltaNet projections (`in_proj_qkv`, `in_proj_z`, `out_proj`). Only 1 in 4 of
+  Qwen3.5's token-mixing layers is standard attention, so the usual
+  q/k/v/o-only recipe would leave most of the model untouched. After training,
+  adapter weights are renamed to the vision-language checkpoint's
+  `model.language_model.*` naming, which is what vLLM expects.
+* **Kernels:** `flash-linear-attention` provides fast Gated DeltaNet kernels;
+  without it transformers falls back to a slow pure-PyTorch path (the training
+  script warns).
+* **Eval sampling:** temperature 0.6, top_p 0.95, top_k 20 (Qwen's thinking-mode
+  setting for precise tasks; greedy decoding can loop in thinking models).
+
+Expect about 80M training tokens per epoch per teacher, roughly 4–5 h/epoch on
+one H100. The data is regenerated on the VM (about 2 min) and checked against
 `data/reference_stats/`. At the end, `scripts/compare_results.py` prints the
 base / L* / TTT table.
 
 `tests/test_masking_qwen3_template.py` checks the loss masks against the real
-Qwen3 chat template (template file from llama.cpp `models/templates/`).
+Qwen3 and Qwen3.5 chat templates (template files from llama.cpp `models/templates/`).
 
 ## Gemini with visible reasoning (one command)
 
@@ -108,10 +122,10 @@ for t in lstar ttt; do
   python scripts/generate_data.py --per-n 300 --teacher $t --scaffold think,thought --out data/think_v1/$t
 done
 # open thinking model (reasoning in the native thinking channel)
-python scripts/train_hf_lora.py --model Qwen/Qwen3-4B-Thinking-2507 \
-    --data data/think_v1/ttt/think --out runs/qwen3-4b-think-ttt        # and .../lstar/think
-vllm serve Qwen/Qwen3-4B-Thinking-2507 --enable-lora --reasoning-parser qwen3 \
-    --lora-modules aal=runs/qwen3-4b-think-ttt/final --max-model-len 32768
+python scripts/train_hf_lora.py --model Qwen/Qwen3.5-4B \
+    --data data/think_v1/ttt/think --out runs/qwen3.5-4b-ttt            # and .../lstar/think
+vllm serve Qwen/Qwen3.5-4B --language-model-only --enable-lora --max-lora-rank 32 \
+    --reasoning-parser qwen3 --lora-modules aal=runs/qwen3.5-4b-ttt/final --max-model-len 40960
 python scripts/evaluate.py --backend openai --model aal --scaffold think --out results/qwen-think-ttt
 # Gemini with visible reasoning (<THOUGHT> block, built-in thinking MINIMAL)
 python scripts/train_gemini_vertex.py --project P --bucket B --data data/think_v1/ttt/thought

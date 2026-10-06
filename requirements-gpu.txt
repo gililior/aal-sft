@@ -1,5 +1,9 @@
-# open-model training and serving (installs a CUDA build of torch via vllm)
-vllm>=0.10
-transformers>=4.55
-peft>=0.17
-accelerate>=1.10
+# open-model training and serving (vllm brings a CUDA build of torch).
+# Qwen3.5 needs recent releases of all of these (qwen3_5 architecture in transformers,
+# Qwen3.5 LoRA support and --language-model-only in vLLM), so install the latest.
+vllm
+transformers
+peft
+accelerate
+# fast Gated DeltaNet kernels for Qwen3.5 training (otherwise a slow pure-PyTorch path is used)
+flash-linear-attention

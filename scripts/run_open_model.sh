@@ -7,12 +7,18 @@
 #   TEACHERS=ttt EPOCHS=2 ./scripts/run_open_model.sh
 #
 # Results: results/<model-tag>-{base,lstar,ttt}/summary.json ; adapters: runs/<model-tag>-<teacher>/final
-# Rough cost (4B, one H100 80GB): ~80M training tokens per epoch per teacher, ~4-5 h/epoch.
+# Rough cost (4B, one H100 80GB): ~80M training tokens per epoch per teacher, ~4-5 h/epoch
+# (needs flash-linear-attention for Qwen3.5's Gated DeltaNet layers; installed by setup.sh gpu).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-MODEL=${MODEL:-Qwen/Qwen3-4B-Thinking-2507}
+MODEL=${MODEL:-Qwen/Qwen3.5-4B}     # thinks by default; also Qwen/Qwen3.5-9B, Qwen/Qwen3-4B-Thinking-2507
 REASONING_PARSER=${REASONING_PARSER:-qwen3}
+# Qwen3.5 checkpoints are vision-language models: serve text-only
+if [[ "$MODEL" == *Qwen3.5* ]]; then SERVE_EXTRA=${SERVE_EXTRA:---language-model-only}; else SERVE_EXTRA=${SERVE_EXTRA:-}; fi
+# Qwen's recommended thinking-mode sampling for precise tasks (greedy decoding loops in thinking models)
+TEMPERATURE=${TEMPERATURE:-0.6}
+EXTRA_BODY=${EXTRA_BODY:-'{"top_p": 0.95, "top_k": 20, "min_p": 0.0}'}
 TEACHERS=${TEACHERS:-"lstar ttt"}
 STAGES=${STAGES:-"setup data base train eval"}
 EPOCHS=${EPOCHS:-1}
@@ -66,7 +72,7 @@ serve() {  # serve [adapter_dir]
   mkdir -p logs
   vllm serve "$MODEL" --port "$PORT" --max-model-len "$MAX_MODEL_LEN" \
       --reasoning-parser "$REASONING_PARSER" --tensor-parallel-size "${NGPU:-1}" \
-      "${extra[@]}" > "logs/vllm_$(date +%s).log" 2>&1 &
+      $SERVE_EXTRA "${extra[@]}" > "logs/vllm_$(date +%s).log" 2>&1 &
   VLLM_PID=$!
   for _ in $(seq 1 180); do
     if curl -sf "http://localhost:$PORT/v1/models" > /dev/null; then return 0; fi
@@ -78,7 +84,8 @@ serve() {  # serve [adapter_dir]
 
 evaluate() {  # evaluate <served-model-name> <out>
   python scripts/evaluate.py --backend openai --model "$1" --base-url "http://localhost:$PORT/v1" \
-      --scaffold think --workers "$EVAL_WORKERS" --out "$2"
+      --scaffold think --workers "$EVAL_WORKERS" --temperature "$TEMPERATURE" --extra-body "$EXTRA_BODY" \
+      --out "$2"
 }
 
 if has base; then
