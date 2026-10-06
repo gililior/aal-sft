@@ -1,0 +1,5 @@
+# open-model training and serving (installs a CUDA build of torch via vllm)
+vllm>=0.10
+transformers>=4.55
+peft>=0.17
+accelerate>=1.10

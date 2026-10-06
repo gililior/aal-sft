@@ -1,0 +1,174 @@
+{
+  "args": {
+    "n_min": 2,
+    "n_max": 9,
+    "per_n": 300,
+    "seed_start": 100000,
+    "max_attempts_factor": 30,
+    "scaffold": "think,thought",
+    "teacher": "lstar",
+    "budget_ratio": 2.0,
+    "val_frac": 0.05,
+    "workers": 2,
+    "out": "data/think_v1/lstar"
+  },
+  "dropped": {
+    "equivalent_to_eval": 5332,
+    "duplicate": 3712
+  },
+  "replay_errors": 0,
+  "scaffolds": {
+    "think": {
+      "examples": 2110,
+      "val_examples": 105,
+      "assistant_turns": 97336,
+      "teacher_share": {
+        "L*": 2110
+      },
+      "approx_tokens_max": 29151,
+      "approx_tokens_total": 19142285,
+      "per_n": {
+        "2": {
+          "count": 10,
+          "mean_teacher_calls": 6,
+          "mean_lstar_calls": 6,
+          "mean_ttt_calls": 9.1,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 1519
+        },
+        "3": {
+          "count": 300,
+          "mean_teacher_calls": 15.2,
+          "mean_lstar_calls": 15.2,
+          "mean_ttt_calls": 15.4,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 2958
+        },
+        "4": {
+          "count": 300,
+          "mean_teacher_calls": 24.0,
+          "mean_lstar_calls": 24.0,
+          "mean_ttt_calls": 22.7,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 4455
+        },
+        "5": {
+          "count": 300,
+          "mean_teacher_calls": 34.5,
+          "mean_lstar_calls": 34.5,
+          "mean_ttt_calls": 30.4,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 6367
+        },
+        "6": {
+          "count": 300,
+          "mean_teacher_calls": 44.9,
+          "mean_lstar_calls": 44.9,
+          "mean_ttt_calls": 38.2,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 8458
+        },
+        "7": {
+          "count": 300,
+          "mean_teacher_calls": 56.4,
+          "mean_lstar_calls": 56.4,
+          "mean_ttt_calls": 46.3,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 10943
+        },
+        "8": {
+          "count": 300,
+          "mean_teacher_calls": 68.3,
+          "mean_lstar_calls": 68.3,
+          "mean_ttt_calls": 54.8,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 13696
+        },
+        "9": {
+          "count": 300,
+          "mean_teacher_calls": 81.0,
+          "mean_lstar_calls": 81.0,
+          "mean_ttt_calls": 63.2,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 16876
+        }
+      }
+    },
+    "thought": {
+      "examples": 2110,
+      "val_examples": 105,
+      "assistant_turns": 97336,
+      "teacher_share": {
+        "L*": 2110
+      },
+      "approx_tokens_max": 29897,
+      "approx_tokens_total": 19743060,
+      "per_n": {
+        "2": {
+          "count": 10,
+          "mean_teacher_calls": 6,
+          "mean_lstar_calls": 6,
+          "mean_ttt_calls": 9.1,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 1583
+        },
+        "3": {
+          "count": 300,
+          "mean_teacher_calls": 15.2,
+          "mean_lstar_calls": 15.2,
+          "mean_ttt_calls": 15.4,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 3073
+        },
+        "4": {
+          "count": 300,
+          "mean_teacher_calls": 24.0,
+          "mean_lstar_calls": 24.0,
+          "mean_ttt_calls": 22.7,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 4618
+        },
+        "5": {
+          "count": 300,
+          "mean_teacher_calls": 34.5,
+          "mean_lstar_calls": 34.5,
+          "mean_ttt_calls": 30.4,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 6588
+        },
+        "6": {
+          "count": 300,
+          "mean_teacher_calls": 44.9,
+          "mean_lstar_calls": 44.9,
+          "mean_ttt_calls": 38.2,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 8736
+        },
+        "7": {
+          "count": 300,
+          "mean_teacher_calls": 56.4,
+          "mean_lstar_calls": 56.4,
+          "mean_ttt_calls": 46.3,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 11284
+        },
+        "8": {
+          "count": 300,
+          "mean_teacher_calls": 68.3,
+          "mean_lstar_calls": 68.3,
+          "mean_ttt_calls": 54.8,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 14102
+        },
+        "9": {
+          "count": 300,
+          "mean_teacher_calls": 81.0,
+          "mean_lstar_calls": 81.0,
+          "mean_ttt_calls": 63.2,
+          "ttt_share": 0.0,
+          "mean_approx_tokens": 17352
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "config": {
+    "backend": "teacher",
+    "model": null,
+    "project": null,
+    "location": "us-central1",
+    "thinking_level": "MINIMAL",
+    "base_url": "http://localhost:8000/v1",
+    "extra_body": null,
+    "temperature": null,
+    "scaffold": "think",
+    "replay_teacher": "lstar",
+    "max_tokens": 16384,
+    "n_states": "2-9",
+    "seeds": "1-20",
+    "budget_ratio": 2.0,
+    "max_steps": 1000,
+    "workers": 2,
+    "out": "results/replay_lstar_think"
+  },
+  "buckets": {
+    "2-3": {
+      "n": 40,
+      "success_rate": 100.0,
+      "success_ci95": [
+        100.0,
+        100.0
+      ],
+      "mean_delta_calls_successful": 0.33,
+      "invalid_turn_rate": 0.0,
+      "errors": 0
+    },
+    "4-5": {
+      "n": 40,
+      "success_rate": 100.0,
+      "success_ci95": [
+        100.0,
+        100.0
+      ],
+      "mean_delta_calls_successful": 4.6,
+      "invalid_turn_rate": 0.0,
+      "errors": 0
+    },
+    "6-7": {
+      "n": 40,
+      "success_rate": 100.0,
+      "success_ci95": [
+        100.0,
+        100.0
+      ],
+      "mean_delta_calls_successful": 7.8,
+      "invalid_turn_rate": 0.0,
+      "errors": 0
+    },
+    "8-9": {
+      "n": 40,
+      "success_rate": 97.5,
+      "success_ci95": [
+        92.5,
+        100.0
+      ],
+      "mean_delta_calls_successful": 16.79,
+      "invalid_turn_rate": 0.0,
+      "errors": 0
+    }
+  },
+  "overall_success": 99.4
+}

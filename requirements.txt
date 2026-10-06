@@ -1,0 +1,9 @@
+# data generation + evaluation harness
+aalpy @ git+https://github.com/DES-Lab/AALpy@9b313d5035a2064ecb4531fb188c7608f014c488
+automata-lib @ git+https://github.com/caleb531/automata@04dc1947315f322825991b5dc637604567703c9c
+numpy
+pandas
+scipy
+# model backends for evaluation
+openai>=1.40
+google-genai>=1.30
