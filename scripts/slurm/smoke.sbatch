@@ -3,11 +3,11 @@
 # eval the base model on 4 instances, LoRA-train on 20 TTT trajectories, serve the
 # adapter and eval it on the same 4 instances. Results land in results/smoke-*.
 #
-#   sbatch -p <partition> -A <account> scripts/slurm/smoke.sbatch
+#   sbatch scripts/slurm/smoke.sbatch
 #
 #SBATCH --job-name=aal-smoke
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=1:00:00

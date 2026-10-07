@@ -2,8 +2,7 @@
 # Environment setup as a job (for clusters where heavy installs on the login node
 # are discouraged), followed by a check on the GPU itself. Needs internet on the node.
 #
-#   mkdir -p logs && sbatch -p <partition> scripts/slurm/prepare.sbatch
-#   VENV=/scratch/$USER/aal-venv sbatch -p <partition> scripts/slurm/prepare.sbatch
+#   mkdir -p logs && sbatch scripts/slurm/prepare.sbatch
 #
 #SBATCH --job-name=aal-prepare
 #SBATCH --nodes=1
@@ -14,12 +13,14 @@
 #SBATCH --output=logs/slurm-%x-%j.out
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?submit from the repo root}"
+# cluster defaults (scripts/slurm/site.env), if present
+if [ -f scripts/slurm/site.env ]; then source scripts/slurm/site.env; fi
 if [ -n "${PRE_CMD:-}" ]; then eval "$PRE_CMD"; fi
 
 bash scripts/slurm/prepare.sh
 
 # shellcheck disable=SC1091
-source .venv/bin/activate
+source "${VENV:-.venv}/bin/activate"
 python - <<'EOF'
 import torch
 print("CUDA available:", torch.cuda.is_available(), "| devices:", torch.cuda.device_count())

@@ -3,7 +3,7 @@
 #   base eval  |  train+eval on L*  |  train+eval on TTT
 # When all three finish:  python scripts/compare_results.py results/<tag>-* results/replay_*
 #
-#   SBATCH_ARGS="-p short" bash scripts/slurm/submit_all.sh
+#   bash scripts/slurm/submit_all.sh                  # add SBATCH_ARGS="-p ... -A ..." if needed
 #
 # GPUs: TRAIN_GRES (default 4x L40S per training job, trained data-parallel with
 # torchrun; eval then serves on one of them) and EVAL_GRES for the base eval.
@@ -16,6 +16,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p logs
+# cluster defaults (scripts/slurm/site.env), if present
+if [ -f scripts/slurm/site.env ]; then source scripts/slurm/site.env; fi
 
 SBATCH_ARGS=${SBATCH_ARGS:-}
 TRAIN_GRES=${TRAIN_GRES:-gpu:l40s:4}
@@ -44,4 +46,4 @@ for t in lstar ttt; do
 done
 echo "submitted: base=$base lstar=${ids[1]} ttt=${ids[2]}"
 echo "watch:  squeue -u \$USER ;  tail -f logs/slurm-aal-$TAG-*.out"
-echo "after:  source .venv/bin/activate && python scripts/compare_results.py results/$TAG-* results/replay_*"
+echo "after:  source ${VENV:-.venv}/bin/activate && python scripts/compare_results.py results/$TAG-* results/replay_*"

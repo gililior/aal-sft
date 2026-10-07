@@ -17,35 +17,24 @@ tests/test_fidelity_vs_upstream_runtime.py
 
 ## On a Slurm cluster
 
+Cluster defaults live in `scripts/slurm/site.env` (environment location, GPU types,
+time limits); anything set in your shell overrides them.
+
 ```bash
-# 1. once: Python env (~10 GB), deps, data, model weights. Either on the login node...
-export HF_HOME=/shared/path/hf_cache        # optional: somewhere with ~10 GB free
-bash scripts/slurm/prepare.sh
-#    ...or as a job, which also checks CUDA and the kernels on an L40S:
-mkdir -p logs && sbatch -p <partition> scripts/slurm/prepare.sbatch
-
-# 2. ~30 min check of every stage on a tiny subset (results/smoke-*)
-sbatch -p <partition> -A <account> scripts/slurm/smoke.sbatch
-
-# 3. the real runs, as 3 parallel jobs: base eval (1 GPU), and L* / TTT train+eval
-#    (4 GPUs each, data-parallel training; ~5-6 h per teacher on 4x L40S)
-SBATCH_ARGS="-p <partition>" bash scripts/slurm/submit_all.sh
+cd /cs/snapless/gabis/gililior && git clone https://github.com/gililior/aal-sft.git && cd aal-sft
+mkdir -p logs
+sbatch scripts/slurm/prepare.sbatch     # env in virtual_envs/aal_sft, data, weights, GPU check
+sbatch scripts/slurm/smoke.sbatch       # ~30 min, every stage on a tiny subset (results/smoke-*)
+bash scripts/slurm/submit_all.sh        # base eval (1x L40S) + L* and TTT train+eval (4x L40S each)
 ```
 
-GPU types and counts are `TRAIN_GRES` (default `gpu:l40s:4`) and `EVAL_GRES`
-(`gpu:l40s:1`); time limits `TRAIN_TIME` / `EVAL_TIME`. Training checkpoints
-about 20 times per epoch: if a job hits its time limit, run `submit_all.sh`
-again. Finished parts are skipped and training resumes from the latest
-checkpoint.
-
 `prepare.sh` uses the system `python3` if it is 3.10–3.13; otherwise it installs
-`uv` and fetches Python 3.12. Set `VENV=/scratch/...` to put the environment
-outside a small home quota (a `.venv` link is made in the repo).
-
-Partition, account, GPU type (`--gres=gpu:a100:1`), QoS etc. go in the sbatch
-flags / `SBATCH_ARGS`. If your cluster needs modules on compute nodes, pass
-`PRE_CMD="module load cuda/12.4"`. Jobs run with `HF_HUB_OFFLINE=1` from the
-cache filled by `prepare.sh`; logs are in `logs/slurm-*.out`.
+`uv` and fetches Python 3.12. If compute nodes have no internet, run
+`bash scripts/slurm/prepare.sh` on the login node instead of `prepare.sbatch`.
+Jobs run with `HF_HUB_OFFLINE=1` from the cache filled by `prepare.sh`. Training
+checkpoints about 20 times per epoch: if a job is killed, run `submit_all.sh`
+again. Finished parts are skipped and training resumes from the latest
+checkpoint. Logs are in `logs/slurm-*.out`.
 
 ## Open thinking model on a GPU VM (one command)
 

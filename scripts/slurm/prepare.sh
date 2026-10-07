@@ -16,6 +16,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p logs   # Slurm won't create the --output directory
+# cluster defaults (scripts/slurm/site.env), if present
+if [ -f scripts/slurm/site.env ]; then source scripts/slurm/site.env; fi
 
 MODEL=${MODEL:-Qwen/Qwen3.5-4B}
 VENV=${VENV:-.venv}
@@ -40,7 +42,6 @@ fi
 # shellcheck disable=SC1090
 source "$VENV/bin/activate"
 python -m pip install --upgrade pip
-[ "$VENV" = ".venv" ] || ln -sfn "$(realpath "$VENV")" .venv   # job.sbatch activates ./.venv
 ./setup.sh gpu
 
 for t in lstar ttt; do
