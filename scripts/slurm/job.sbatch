@@ -27,5 +27,5 @@ export TOKENIZERS_PARALLELISM=false
 export PORT=${PORT:-$((8000 + ${SLURM_JOB_ID:-0} % 1000))}
 
 echo "job ${SLURM_JOB_ID:-?} on $(hostname): STAGES='${STAGES:-}' TEACHERS='${TEACHERS:-}' TAG='${TAG:-}'"
-nvidia-smi -L || true
+echo "GPUs visible: ${CUDA_VISIBLE_DEVICES:-none}"
 ./scripts/run_open_model.sh

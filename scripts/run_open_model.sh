@@ -31,8 +31,15 @@ PORT=${PORT:-8000}
 EVAL_WORKERS=${EVAL_WORKERS:-16}
 MAX_MODEL_LEN=${MAX_MODEL_LEN:-40960}
 SERVE_TP=${SERVE_TP:-1}          # GPUs for vLLM; 1 is plenty for a 4B model
-NGPU=${NGPU:-${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}}
+# GPU count: Slurm's value, else the devices Slurm/CUDA exposes to this job
+if [ -z "${NGPU:-}" ]; then
+  if [ -n "${SLURM_GPUS_ON_NODE:-}" ]; then NGPU=$SLURM_GPUS_ON_NODE
+  elif [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then NGPU=$(echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | grep -c .)
+  else NGPU=$(python -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo 1)
+  fi
+fi
 NGPU=${NGPU%%(*}                 # Slurm may report e.g. "1(IDX:0)"
+[ "$NGPU" -ge 1 ] 2>/dev/null || NGPU=1
 # subsets, for smoke tests
 TRAIN_LIMIT=${TRAIN_LIMIT:-}     # use only N trajectories per teacher
 EVAL_NSTATES=${EVAL_NSTATES:-2-9}
