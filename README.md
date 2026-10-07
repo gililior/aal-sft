@@ -25,9 +25,16 @@ bash scripts/slurm/prepare.sh
 # 2. ~30 min check of every stage on a tiny subset (results/smoke-*)
 sbatch -p <partition> -A <account> scripts/slurm/smoke.sbatch
 
-# 3. the real runs: base eval, L* train+eval, TTT train+eval as 3 parallel 1-GPU jobs
-SBATCH_ARGS="-p <partition> -A <account>" bash scripts/slurm/submit_all.sh
+# 3. the real runs, as 3 parallel jobs: base eval (1 GPU), and L* / TTT train+eval
+#    (4 GPUs each, data-parallel training; ~5-6 h per teacher on 4x L40S)
+SBATCH_ARGS="-p <partition>" bash scripts/slurm/submit_all.sh
 ```
+
+GPU types and counts are `TRAIN_GRES` (default `gpu:l40s:4`) and `EVAL_GRES`
+(`gpu:l40s:1`); time limits `TRAIN_TIME` / `EVAL_TIME`. Training checkpoints
+about 20 times per epoch: if a job hits its time limit, run `submit_all.sh`
+again. Finished parts are skipped and training resumes from the latest
+checkpoint.
 
 Partition, account, GPU type (`--gres=gpu:a100:1`), QoS etc. go in the sbatch
 flags / `SBATCH_ARGS`. If your cluster needs modules on compute nodes, pass

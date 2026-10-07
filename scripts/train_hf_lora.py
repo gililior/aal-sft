@@ -165,6 +165,8 @@ def main():
                          "projections exist only in hybrid models such as Qwen3.5)")
     ap.add_argument("--limit", type=int, default=None, help="debug: use only N trajectories")
     ap.add_argument("--max-val", type=int, default=300, help="cap on validation examples")
+    ap.add_argument("--saves-per-epoch", type=int, default=20,
+                    help="checkpoints per epoch (training resumes from the latest one when rerun)")
     ap.add_argument("--mq-turns-per-traj", type=int, default=8,
                     help="thinking data: MQ turns sampled per trajectory (all EQ turns always kept; 0 = all turns)")
     args = ap.parse_args()
@@ -213,8 +215,12 @@ def main():
     random.Random(1).shuffle(val)
     val = val[: args.max_val]
     mean_len = sum(len(x["input_ids"]) for x in train) / len(train)
-    grad_accum = max(1, round(args.batch_tokens / mean_len))
-    print(f"mean length {mean_len:.0f} tokens -> grad_accum {grad_accum} (batch size 1)")
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    # keep the effective batch (~batch_tokens) independent of the number of GPUs
+    grad_accum = max(1, round(args.batch_tokens / (mean_len * world)))
+    steps_per_epoch = max(1, math.ceil(len(train) / (grad_accum * world)))
+    print(f"mean length {mean_len:.0f} tokens, {world} GPU(s) -> grad_accum {grad_accum}, "
+          f"{steps_per_epoch} optimizer steps/epoch")
 
     class DS(torch.utils.data.Dataset):
         def __init__(self, xs):
@@ -267,8 +273,11 @@ def main():
         bf16=True,
         logging_steps=5,
         eval_strategy="steps" if val else "no",
-        eval_steps=max(1, math.ceil(len(train) / grad_accum / 4)),
-        save_strategy="epoch",
+        eval_steps=max(1, steps_per_epoch // 4),
+        # frequent checkpoints so a job killed by a time limit / preemption can resume
+        save_strategy="steps",
+        save_steps=max(1, steps_per_epoch // args.saves_per_epoch),
+        save_total_limit=2,
         report_to="none",
         remove_unused_columns=False,
         ddp_find_unused_parameters=False,
@@ -277,7 +286,11 @@ def main():
     random.Random(0).shuffle(train)
     trainer = Trainer(model=model, args=targs, train_dataset=DS(train),
                       eval_dataset=DS(val) if val else None, data_collator=collate)
-    trainer.train()
+    from transformers.trainer_utils import get_last_checkpoint
+    last = get_last_checkpoint(args.out) if os.path.isdir(args.out) else None
+    if last:
+        print("resuming from", last, flush=True)
+    trainer.train(resume_from_checkpoint=last)
     if trainer.is_world_process_zero():
         final = os.path.join(args.out, "final")
         model.save_pretrained(final)

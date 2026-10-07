@@ -30,6 +30,7 @@ MAX_LEN=${MAX_LEN:-16384}
 PORT=${PORT:-8000}
 EVAL_WORKERS=${EVAL_WORKERS:-16}
 MAX_MODEL_LEN=${MAX_MODEL_LEN:-40960}
+SERVE_TP=${SERVE_TP:-1}          # GPUs for vLLM; 1 is plenty for a 4B model
 NGPU=${NGPU:-${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}}
 NGPU=${NGPU%%(*}                 # Slurm may report e.g. "1(IDX:0)"
 # subsets, for smoke tests
@@ -78,7 +79,7 @@ serve() {  # serve [adapter_dir]
   fi
   mkdir -p logs
   vllm serve "$MODEL" --port "$PORT" --max-model-len "$MAX_MODEL_LEN" \
-      --reasoning-parser "$REASONING_PARSER" --tensor-parallel-size "${NGPU:-1}" \
+      --reasoning-parser "$REASONING_PARSER" --tensor-parallel-size "$SERVE_TP" \
       $SERVE_EXTRA "${extra[@]}" > "logs/vllm_$(date +%s).log" 2>&1 &
   VLLM_PID=$!
   for _ in $(seq 1 180); do
@@ -103,14 +104,16 @@ if has base; then
 fi
 
 for t in $TEACHERS; do
-  if has train; then
-    log "train on $t"
+  if has train && [ -f "runs/$TAG-$t/final/adapter_model.safetensors" ]; then
+    log "runs/$TAG-$t/final exists: skipping training on $t"
+  elif has train; then
+    log "train on $t (resumes from the latest checkpoint in runs/$TAG-$t if any)"
     args=(scripts/train_hf_lora.py --model "$MODEL" --data "data/think_v1/$t/think" --out "runs/$TAG-$t"
           --epochs "$EPOCHS" --mq-turns-per-traj "$MQ_TURNS" --rank "$LORA_RANK" --alpha $((2 * LORA_RANK))
           --max-len "$MAX_LEN")
     if [ -n "$TRAIN_LIMIT" ]; then args+=(--limit "$TRAIN_LIMIT"); fi
     if [ "${NGPU:-1}" -gt 1 ]; then
-      torchrun --nproc_per_node "$NGPU" "${args[@]}"
+      torchrun --standalone --nproc_per_node "$NGPU" "${args[@]}"
     else
       python "${args[@]}"
     fi
