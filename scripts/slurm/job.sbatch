@@ -22,6 +22,19 @@ if [ -n "${PRE_CMD:-}" ]; then eval "$PRE_CMD"; fi
 source "${VENV:-.venv}/bin/activate"
 
 export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}       # weights were cached by prepare.sh
+# vLLM's FlashInfer top-k/top-p sampler JIT-compiles kernels and needs nvcc, which
+# compute nodes may not have; vLLM's own sampler needs nothing extra.
+export VLLM_USE_FLASHINFER_SAMPLER=${VLLM_USE_FLASHINFER_SAMPLER:-0}
+# If other kernels still need nvcc, use a CUDA toolkit from modules or a standard path.
+if ! command -v nvcc > /dev/null 2>&1; then
+  if type module > /dev/null 2>&1; then module load cuda > /dev/null 2>&1 || true; fi
+fi
+if ! command -v nvcc > /dev/null 2>&1; then
+  for d in ${CUDA_HOME:-} /usr/local/cuda /usr/local/cuda-* /opt/cuda /usr/lib/cuda /usr/local/nvidia/cuda; do
+    if [ -x "$d/bin/nvcc" ]; then export CUDA_HOME=$d PATH=$d/bin:$PATH; break; fi
+  done
+fi
+echo "nvcc: $(command -v nvcc || echo 'not found (fine unless vLLM needs to compile kernels)')"
 export TOKENIZERS_PARALLELISM=false
 # a per-job port so several jobs can share a node
 export PORT=${PORT:-$((8000 + ${SLURM_JOB_ID:-0} % 1000))}
