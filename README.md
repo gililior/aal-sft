@@ -18,9 +18,11 @@ tests/test_fidelity_vs_upstream_runtime.py
 ## On a Slurm cluster
 
 ```bash
-# 1. login node, once (compute nodes often have no internet): venv, deps, data, model weights
+# 1. once: Python env (~10 GB), deps, data, model weights. Either on the login node...
 export HF_HOME=/shared/path/hf_cache        # optional: somewhere with ~10 GB free
 bash scripts/slurm/prepare.sh
+#    ...or as a job, which also checks CUDA and the kernels on an L40S:
+mkdir -p logs && sbatch -p <partition> scripts/slurm/prepare.sbatch
 
 # 2. ~30 min check of every stage on a tiny subset (results/smoke-*)
 sbatch -p <partition> -A <account> scripts/slurm/smoke.sbatch
@@ -35,6 +37,10 @@ GPU types and counts are `TRAIN_GRES` (default `gpu:l40s:4`) and `EVAL_GRES`
 about 20 times per epoch: if a job hits its time limit, run `submit_all.sh`
 again. Finished parts are skipped and training resumes from the latest
 checkpoint.
+
+`prepare.sh` uses the system `python3` if it is 3.10–3.13; otherwise it installs
+`uv` and fetches Python 3.12. Set `VENV=/scratch/...` to put the environment
+outside a small home quota (a `.venv` link is made in the repo).
 
 Partition, account, GPU type (`--gres=gpu:a100:1`), QoS etc. go in the sbatch
 flags / `SBATCH_ARGS`. If your cluster needs modules on compute nodes, pass

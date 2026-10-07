@@ -1,41 +1,58 @@
 #!/usr/bin/env bash
-# One-time preparation, run on the LOGIN node (compute nodes often have no internet):
-# creates .venv, installs everything, fetches the paper's code, generates the data,
-# and downloads the model weights into the Hugging Face cache.
+# One-time environment setup: Python env with all dependencies, the paper's code,
+# the training data, and the model weights in the Hugging Face cache.
+# Needs internet. Run it on the login node, or submit scripts/slurm/prepare.sbatch
+# (which also checks the result on a GPU node).
 #
 #   bash scripts/slurm/prepare.sh
-#   MODEL=Qwen/Qwen3.5-9B bash scripts/slurm/prepare.sh
 #
-# If your cluster uses environment modules, load Python/CUDA first, e.g.
-#   module load python/3.11 cuda/12.4
-# and point HF_HOME at shared storage with enough space (the 4B model is ~9 GB):
-#   export HF_HOME=/path/to/shared/hf_cache
+# Settings (environment variables):
+#   MODEL     model to download (default Qwen/Qwen3.5-4B)
+#   VENV      where to create the environment (default ./.venv). torch + vLLM need ~10 GB,
+#             so put it (and the repo) on project/scratch storage if home has a small quota.
+#   HF_HOME   Hugging Face cache for the weights (~9 GB for the 4B model)
+#   PY        Python to use (must be 3.10-3.13). If the system python3 is older, uv is
+#             installed in ~/.local/bin and fetches Python 3.12 by itself.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p logs   # Slurm won't create the --output directory
 
 MODEL=${MODEL:-Qwen/Qwen3.5-4B}
-PY=${PY:-python3}
+VENV=${VENV:-.venv}
+# keep pip/uv caches next to the environment rather than in a small home directory
+export PIP_CACHE_DIR=${PIP_CACHE_DIR:-$(dirname "$(realpath -m "$VENV")")/.cache/pip}
+export UV_CACHE_DIR=${UV_CACHE_DIR:-$(dirname "$(realpath -m "$VENV")")/.cache/uv}
 
-if [ ! -d .venv ]; then
-  "$PY" -m venv .venv
+py_ok() { "$1" -c 'import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)' 2>/dev/null; }
+
+if [ ! -x "$VENV/bin/python" ]; then
+  PY=${PY:-python3}
+  if py_ok "$PY"; then
+    echo "creating $VENV with $($PY --version)"
+    "$PY" -m venv "$VENV"
+  else
+    echo "$PY is missing or not 3.10-3.13; using uv to get Python 3.12"
+    command -v uv > /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    uv venv --python 3.12 --seed "$VENV"
+  fi
 fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
-pip install --upgrade pip
+# shellcheck disable=SC1090
+source "$VENV/bin/activate"
+python -m pip install --upgrade pip
+[ "$VENV" = ".venv" ] || ln -sfn "$(realpath "$VENV")" .venv   # job.sbatch activates ./.venv
 ./setup.sh gpu
 
 for t in lstar ttt; do
   [ -f "data/think_v1/$t/think/train.chat.jsonl" ] || \
     python scripts/generate_data.py --per-n 300 --teacher "$t" --scaffold think,thought --out "data/think_v1/$t"
 done
-STAGES=data ./scripts/run_open_model.sh   # verifies the data against data/reference_stats/
+STAGES=data NGPU=1 ./scripts/run_open_model.sh   # verifies the data against data/reference_stats/
 
 python - "$MODEL" <<'EOF'
 import sys
 from huggingface_hub import snapshot_download
-p = snapshot_download(sys.argv[1])
-print("model cached at", p)
+print("model cached at", snapshot_download(sys.argv[1]))
 EOF
 
 python - <<'EOF'
@@ -49,4 +66,4 @@ for m in ["torch", "transformers", "peft", "vllm", "fla"]:
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 print("transformers knows qwen3_5:", "qwen3_5" in CONFIG_MAPPING)
 EOF
-echo "prepared. Next: sbatch [your -p/-A/--gres flags] scripts/slurm/smoke.sbatch"
+echo "prepared. Next: sbatch -p <partition> scripts/slurm/smoke.sbatch"

@@ -10,3 +10,4 @@ results/*/transcripts/
 __pycache__/
 *.pyc
 *.tuned.json
+.cache/
