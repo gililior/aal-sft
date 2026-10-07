@@ -21,6 +21,8 @@ TEMPERATURE=${TEMPERATURE:-0.6}
 EXTRA_BODY=${EXTRA_BODY:-'{"top_p": 0.95, "top_k": 20, "min_p": 0.0}'}
 TEACHERS=${TEACHERS:-"lstar ttt"}
 STAGES=${STAGES:-"setup data base train eval"}
+STAGES=${STAGES//[,+]/ }          # also accept "train+eval" / "train,eval" (handy for sbatch --export)
+TEACHERS=${TEACHERS//[,+]/ }
 EPOCHS=${EPOCHS:-1}
 MQ_TURNS=${MQ_TURNS:-8}          # MQ turns sampled per trajectory (all EQ turns kept)
 LORA_RANK=${LORA_RANK:-32}
@@ -28,7 +30,12 @@ MAX_LEN=${MAX_LEN:-16384}
 PORT=${PORT:-8000}
 EVAL_WORKERS=${EVAL_WORKERS:-16}
 MAX_MODEL_LEN=${MAX_MODEL_LEN:-40960}
-NGPU=${NGPU:-$(nvidia-smi -L 2>/dev/null | wc -l)}
+NGPU=${NGPU:-${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}}
+NGPU=${NGPU%%(*}                 # Slurm may report e.g. "1(IDX:0)"
+# subsets, for smoke tests
+TRAIN_LIMIT=${TRAIN_LIMIT:-}     # use only N trajectories per teacher
+EVAL_NSTATES=${EVAL_NSTATES:-2-9}
+EVAL_SEEDS=${EVAL_SEEDS:-1-20}
 TAG=${TAG:-$(basename "$MODEL" | tr '[:upper:]' '[:lower:]')}
 
 has() { [[ " $STAGES " == *" $1 "* ]]; }
@@ -85,7 +92,7 @@ serve() {  # serve [adapter_dir]
 evaluate() {  # evaluate <served-model-name> <out>
   python scripts/evaluate.py --backend openai --model "$1" --base-url "http://localhost:$PORT/v1" \
       --scaffold think --workers "$EVAL_WORKERS" --temperature "$TEMPERATURE" --extra-body "$EXTRA_BODY" \
-      --out "$2"
+      --n-states "$EVAL_NSTATES" --seeds "$EVAL_SEEDS" --out "$2"
 }
 
 if has base; then
@@ -101,6 +108,7 @@ for t in $TEACHERS; do
     args=(scripts/train_hf_lora.py --model "$MODEL" --data "data/think_v1/$t/think" --out "runs/$TAG-$t"
           --epochs "$EPOCHS" --mq-turns-per-traj "$MQ_TURNS" --rank "$LORA_RANK" --alpha $((2 * LORA_RANK))
           --max-len "$MAX_LEN")
+    if [ -n "$TRAIN_LIMIT" ]; then args+=(--limit "$TRAIN_LIMIT"); fi
     if [ "${NGPU:-1}" -gt 1 ]; then
       torchrun --nproc_per_node "$NGPU" "${args[@]}"
     else

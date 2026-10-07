@@ -15,6 +15,25 @@ scripts/evaluate.py            paper benchmark (160 instances) via the upstream 
 tests/test_fidelity_vs_upstream_runtime.py
 ```
 
+## On a Slurm cluster
+
+```bash
+# 1. login node, once (compute nodes often have no internet): venv, deps, data, model weights
+export HF_HOME=/shared/path/hf_cache        # optional: somewhere with ~10 GB free
+bash scripts/slurm/prepare.sh
+
+# 2. ~30 min check of every stage on a tiny subset (results/smoke-*)
+sbatch -p <partition> -A <account> scripts/slurm/smoke.sbatch
+
+# 3. the real runs: base eval, L* train+eval, TTT train+eval as 3 parallel 1-GPU jobs
+SBATCH_ARGS="-p <partition> -A <account>" bash scripts/slurm/submit_all.sh
+```
+
+Partition, account, GPU type (`--gres=gpu:a100:1`), QoS etc. go in the sbatch
+flags / `SBATCH_ARGS`. If your cluster needs modules on compute nodes, pass
+`PRE_CMD="module load cuda/12.4"`. Jobs run with `HF_HUB_OFFLINE=1` from the
+cache filled by `prepare.sh`; logs are in `logs/slurm-*.out`.
+
 ## Open thinking model on a GPU VM (one command)
 
 ```bash
