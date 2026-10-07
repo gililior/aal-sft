@@ -50,10 +50,13 @@ for t in lstar ttt; do
 done
 STAGES=data NGPU=1 ./scripts/run_open_model.sh   # verifies the data against data/reference_stats/
 
+echo "Hugging Face cache: ${HF_HOME:-~/.cache/huggingface}"
+df -h "${HF_HOME:-$HOME}" 2>/dev/null | tail -1 || true
 python - "$MODEL" <<'EOF'
 import sys
 from huggingface_hub import snapshot_download
-print("model cached at", snapshot_download(sys.argv[1]))
+# weights only (skip duplicate formats); resumes a partial download
+print("model cached at", snapshot_download(sys.argv[1], allow_patterns=["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken", "merges.txt", "vocab.*"]))
 EOF
 
 python - <<'EOF'
