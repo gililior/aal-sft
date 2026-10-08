@@ -33,7 +33,12 @@ class CharTok:
         s = self.t.render(messages=messages, add_generation_prompt=add_generation_prompt, **kw)
         if add_generation_prompt and self.force:
             s += "<think>\n"
-        return self.encode(s) if tokenize else s
+        if not tokenize:
+            return s
+        ids = self.encode(s)
+        return {"input_ids": ids, "attention_mask": [1] * len(ids)} if self.return_dict else ids
+
+    return_dict = os.environ.get("RETURN_DICT") == "1"   # transformers v5 behaviour
 
     # as in the real Qwen3 / Qwen3.5 vocabularies, these are single tokens
     SPECIAL = {"<|im_start|>": 0x110000, "<|im_end|>": 0x110001, "<think>": 0x110002, "</think>": 0x110003}

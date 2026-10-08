@@ -59,6 +59,23 @@ def fix_adapter_names_for_vllm(adapter_dir, base_model):
     return True
 
 
+def chat_ids(tok, msgs, add_gen, template_kwargs):
+    """Token ids of a rendered chat as a plain list, on any transformers version.
+
+    transformers v5 returns a dict (BatchEncoding) from apply_chat_template(tokenize=True)
+    by default; v4 returns a list.
+    """
+    out = tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=add_gen, **template_kwargs)
+    if hasattr(out, "keys"):
+        out = out["input_ids"]
+    if hasattr(out, "tolist"):
+        out = out.tolist()
+    out = list(out)
+    if out and isinstance(out[0], (list, tuple)):
+        out = list(out[0])
+    return [int(x) for x in out]
+
+
 def load_jsonl(p):
     with open(p) as f:
         return [json.loads(l) for l in f]
@@ -75,7 +92,7 @@ def _common_prefix(a, b):
 def tokenize_last_turn(tok, messages, template_kwargs, max_len):
     """One per-turn example: loss on the final assistant turn (reasoning + action) only."""
     def ids(msgs, add_gen):
-        return list(tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=add_gen, **template_kwargs))
+        return chat_ids(tok, msgs, add_gen, template_kwargs)
 
     full = ids(messages, False)
     if len(full) > max_len:
@@ -95,8 +112,7 @@ def template_renders_reasoning(tok, template_kwargs) -> bool:
 
 def end_of_turn_id(tok, template_kwargs) -> int:
     """The token that closes a chat turn (<|im_end|>, <|eot_id|>, <end_of_turn>, ...)."""
-    ids = list(tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=True,
-                                       add_generation_prompt=False, **template_kwargs))
+    ids = chat_ids(tok, [{"role": "user", "content": "x"}], False, template_kwargs)
     while ids and tok.decode([ids[-1]]).strip() == "":
         ids.pop()
     return ids[-1]
@@ -127,7 +143,7 @@ def tokenize_with_mask(tok, messages, template_kwargs, max_len, eot=None):
     and Qwen3.5 render the final assistant turn differently from earlier ones.)
     """
     def ids(msgs, add_gen):
-        return list(tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=add_gen, **template_kwargs))
+        return chat_ids(tok, msgs, add_gen, template_kwargs)
 
     full = ids(messages, False)
     if len(full) > max_len:
@@ -215,6 +231,15 @@ def main():
     random.Random(1).shuffle(val)
     val = val[: args.max_val]
     mean_len = sum(len(x["input_ids"]) for x in train) / len(train)
+    # fail fast on tokenization problems instead of training on garbage
+    n_lab = sum(sum(l != -100 for l in x["labels"]) for x in train)
+    if mean_len < 64 or n_lab == 0:
+        raise SystemExit(f"tokenization looks wrong: mean length {mean_len:.1f} tokens, "
+                         f"{n_lab} supervised tokens. Check the tokenizer / chat template.")
+    ex0 = train[0]
+    tgt = [t for t, l in zip(ex0["input_ids"], ex0["labels"]) if l != -100]
+    print(f"example: {len(ex0['input_ids'])} tokens, {len(tgt)} supervised. Target starts:\n"
+          + tok.decode(tgt)[:300].replace("\n", "\n  | "), flush=True)
     world = int(os.environ.get("WORLD_SIZE", "1"))
     # keep the effective batch (~batch_tokens) independent of the number of GPUs
     grad_accum = max(1, round(args.batch_tokens / (mean_len * world)))
@@ -269,7 +294,7 @@ def main():
         num_train_epochs=args.epochs,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=0.03,  # fraction of total steps (transformers v5 removed warmup_ratio)
         bf16=True,
         logging_steps=5,
         eval_strategy="steps" if val else "no",
@@ -281,7 +306,6 @@ def main():
         report_to="none",
         remove_unused_columns=False,
         ddp_find_unused_parameters=False,
-        group_by_length=False,
     )
     random.Random(0).shuffle(train)
     trainer = Trainer(model=model, args=targs, train_dataset=DS(train),
