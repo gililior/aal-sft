@@ -36,6 +36,7 @@ if ! command -v nvcc > /dev/null 2>&1; then
 fi
 echo "nvcc: $(command -v nvcc || echo 'not found (fine unless vLLM needs to compile kernels)')"
 export TOKENIZERS_PARALLELISM=false
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}   # less fragmentation
 # a per-job port so several jobs can share a node
 export PORT=${PORT:-$((8000 + ${SLURM_JOB_ID:-0} % 1000))}
 

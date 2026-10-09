@@ -76,6 +76,42 @@ def chat_ids(tok, msgs, add_gen, template_kwargs):
     return [int(x) for x in out]
 
 
+def make_span_trainer(Trainer):
+    """Trainer whose loss only computes vocabulary logits where they are needed.
+
+    Qwen3.5's vocabulary is ~250k, so full-sequence fp32 logits for an 8k-token
+    example are ~8 GB. Labels are -100 up to the supervised span (in per-turn mode
+    that is just the final turn), so we ask the model for logits only from the first
+    supervised position on (`logits_to_keep`) and compute cross-entropy ourselves.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    class SpanLossTrainer(Trainer):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            # we return a per-example mean; let the Trainer divide by grad-accum steps
+            self.model_accepts_loss_kwargs = False
+            if hasattr(self, "loss_is_scaled_for_ga"):
+                self.loss_is_scaled_for_ga = False
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            labels = inputs["labels"]
+            L = labels.shape[1]
+            sup = (labels != -100).any(0).nonzero()
+            first = int(sup[0]) if len(sup) else L - 1
+            keep = min(L, L - first + 1)          # positions first-1 .. L-1 predict tokens first .. L-1
+            out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
+                        logits_to_keep=keep, use_cache=False)
+            logits = out.logits[:, :-1]
+            target = labels[:, L - keep + 1:]
+            loss = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), target.reshape(-1),
+                                   ignore_index=-100)
+            return (loss, out) if return_outputs else loss
+
+    return SpanLossTrainer
+
+
 def load_jsonl(p):
     with open(p) as f:
         return [json.loads(l) for l in f]
@@ -304,11 +340,12 @@ def main():
         save_steps=max(1, steps_per_epoch // args.saves_per_epoch),
         save_total_limit=2,
         report_to="none",
+        prediction_loss_only=True,   # don't gather full logits during eval
         remove_unused_columns=False,
         ddp_find_unused_parameters=False,
     )
     random.Random(0).shuffle(train)
-    trainer = Trainer(model=model, args=targs, train_dataset=DS(train),
+    trainer = make_span_trainer(Trainer)(model=model, args=targs, train_dataset=DS(train),
                       eval_dataset=DS(val) if val else None, data_collator=collate)
     from transformers.trainer_utils import get_last_checkpoint
     last = get_last_checkpoint(args.out) if os.path.isdir(args.out) else None
