@@ -105,7 +105,7 @@ No full runs yet; only smoke tests on the cluster.
 | Date | Run | Outcome |
 | --- | --- | --- |
 | 2026-10-08 | Smoke: base Qwen3.5-4B eval, 4 instances (2–3 states, seeds 1–2), keep-reasoning format | 2 of 4 solved (50%); 17.5% invalid turns; Δ +7.5 calls on successes |
-| 2026-10-08 | Smoke: SFT on 20 TTT trajectories, per-turn mode | Out of memory at step 9 of 16 (fixed: chunked loss) |
+| 2026-10-08 | Smoke: SFT on 20 TTT trajectories | Out of memory at step 9 of 16 (fixed: chunked loss). Rerun completed end to end (train, adapter rename, vLLM load, eval): 0 of 4 solved vs 2 of 4 for base. Too small to mean anything; checking for a format problem |
 | 2026-10-08 | Smoke: same, first attempt | Tokenization bug ("mean length 2 tokens") and `warmup_ratio` crash (fixed) |
 
 ## Things to try next
