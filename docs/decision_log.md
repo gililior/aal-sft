@@ -64,7 +64,7 @@ The default supervises every model turn of a trajectory in one example, with ear
 
 ## RL
 
-The main track, decided 2026-10-08: GRPO with the oracle's verdict as the reward, run from both the base model and an SFT model. Being implemented.
+The main track, decided 2026-10-08: GRPO with the oracle's verdict as the reward, run from both the base model and an SFT model. Code pushed 2026-10-08 (`scripts/train_rl.py`, `scripts/slurm/rl.sbatch`); not yet run on the cluster.
 
 | Choice | Decision | Why |
 | --- | --- | --- |
@@ -110,7 +110,7 @@ No full runs yet; only smoke tests on the cluster.
 
 ## Things to try next
 
-- [ ] Finish the RL code and smoke-test it: a few steps on small DFAs
+- [ ] Smoke-test RL: 2 steps on small DFAs with 2 GPUs (README has the command)
 - [ ] Base eval in per-turn (native) format: the paper-faithful baseline for RL
 - [ ] SFT per-turn on TTT: the RL warm start
 - [ ] RL from base and RL from SFT, same budget
