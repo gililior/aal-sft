@@ -1,0 +1,23 @@
+{#- Qwen ChatML (Qwen3 / Qwen3.5) that KEEPS every assistant turn's reasoning in the
+    history, so a whole trajectory can be trained in one sequence and inference sees
+    the same format. Differences from Qwen's own template: earlier <think> blocks are
+    not dropped; no tool-call / multimodal handling (not used here).
+    An assistant turn renders as  <think>\n{reasoning}\n</think>\n\n{content}
+    from `reasoning_content`, or verbatim if the content already holds a <think> block. -#}
+{%- for message in messages %}
+    {%- if message.role == 'system' %}
+        {{- '<|im_start|>system\n' + (message.content | trim) + '<|im_end|>\n' }}
+    {%- elif message.role == 'user' %}
+        {{- '<|im_start|>user\n' + (message.content | trim) + '<|im_end|>\n' }}
+    {%- elif message.role == 'assistant' %}
+        {%- set content = (message.content or '') | trim %}
+        {%- if message.reasoning_content is string and message.reasoning_content | trim %}
+            {{- '<|im_start|>assistant\n<think>\n' + (message.reasoning_content | trim) + '\n</think>\n\n' + content + '<|im_end|>\n' }}
+        {%- else %}
+            {{- '<|im_start|>assistant\n' + content + '<|im_end|>\n' }}
+        {%- endif %}
+    {%- endif %}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n<think>\n' }}
+{%- endif %}

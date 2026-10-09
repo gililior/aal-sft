@@ -7,7 +7,7 @@
 #   TEACHERS=ttt EPOCHS=2 ./scripts/run_open_model.sh
 #
 # Results: results/<model-tag>-{base,lstar,ttt}/summary.json ; adapters: runs/<model-tag>-<teacher>/final
-# Rough cost (4B, one H100 80GB): ~80M training tokens per epoch per teacher, ~4-5 h/epoch
+# Rough cost (full mode): ~21M (TTT) / ~27M (L*) training tokens per epoch, 2 epochs
 # (needs flash-linear-attention for Qwen3.5's Gated DeltaNet layers; installed by setup.sh gpu).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,13 +23,19 @@ TEACHERS=${TEACHERS:-"lstar ttt"}
 STAGES=${STAGES:-"setup data base train eval"}
 STAGES=${STAGES//[,+]/ }          # also accept "train+eval" / "train,eval" (handy for sbatch --export)
 TEACHERS=${TEACHERS//[,+]/ }
-EPOCHS=${EPOCHS:-1}
-MQ_TURNS=${MQ_TURNS:-8}          # MQ turns sampled per trajectory (all EQ turns kept)
+# full: each trajectory is one example, every model turn supervised, earlier reasoning kept
+#       in context (train AND serve with templates/qwen_keep_reasoning.jinja)
+# per-turn: one example per selected turn, earlier reasoning dropped (Qwen's own format)
+TRAJ_MODE=${TRAJ_MODE:-full}
+EPOCHS=${EPOCHS:-2}
+MQ_TURNS=${MQ_TURNS:-8}          # per-turn mode only: MQ turns sampled per trajectory
 LORA_RANK=${LORA_RANK:-32}
-MAX_LEN=${MAX_LEN:-16384}
+MAX_LEN=${MAX_LEN:-}             # default: 49152 (full) / 16384 (per-turn)
+KEEP_TEMPLATE=templates/qwen_keep_reasoning.jinja
 PORT=${PORT:-8000}
 EVAL_WORKERS=${EVAL_WORKERS:-16}
-MAX_MODEL_LEN=${MAX_MODEL_LEN:-40960}
+# full mode keeps all earlier reasoning in the prompt, so allow long contexts
+if [ "$TRAJ_MODE" = full ]; then MAX_MODEL_LEN=${MAX_MODEL_LEN:-131072}; else MAX_MODEL_LEN=${MAX_MODEL_LEN:-40960}; fi
 SERVE_TP=${SERVE_TP:-1}          # GPUs for vLLM; 1 is plenty for a 4B model
 # GPU count: Slurm's value, else the devices Slurm/CUDA exposes to this job
 if [ -z "${NGPU:-}" ]; then
@@ -81,8 +87,9 @@ trap stop_vllm EXIT
 
 serve() {  # serve [adapter_dir]
   local extra=()
+  if [ "$TRAJ_MODE" = full ]; then extra+=(--chat-template "$KEEP_TEMPLATE"); fi
   if [ -n "${1:-}" ]; then
-    extra=(--enable-lora --max-lora-rank "$LORA_RANK" --lora-modules "aal=$1")
+    extra+=(--enable-lora --max-lora-rank "$LORA_RANK" --lora-modules "aal=$1")
   fi
   mkdir -p logs
   vllm serve "$MODEL" --port "$PORT" --max-model-len "$MAX_MODEL_LEN" \
@@ -100,7 +107,8 @@ serve() {  # serve [adapter_dir]
 evaluate() {  # evaluate <served-model-name> <out>
   python scripts/evaluate.py --backend openai --model "$1" --base-url "http://localhost:$PORT/v1" \
       --scaffold think --workers "$EVAL_WORKERS" --temperature "$TEMPERATURE" --extra-body "$EXTRA_BODY" \
-      --n-states "$EVAL_NSTATES" --seeds "$EVAL_SEEDS" --out "$2"
+      --n-states "$EVAL_NSTATES" --seeds "$EVAL_SEEDS" --out "$2" \
+      $([ "$TRAJ_MODE" = full ] && echo --keep-reasoning)
 }
 
 if has base; then
@@ -116,8 +124,9 @@ for t in $TEACHERS; do
   elif has train; then
     log "train on $t (resumes from the latest checkpoint in runs/$TAG-$t if any)"
     args=(scripts/train_hf_lora.py --model "$MODEL" --data "data/think_v1/$t/think" --out "runs/$TAG-$t"
-          --epochs "$EPOCHS" --mq-turns-per-traj "$MQ_TURNS" --rank "$LORA_RANK" --alpha $((2 * LORA_RANK))
-          --max-len "$MAX_LEN")
+          --epochs "$EPOCHS" --trajectory-mode "$TRAJ_MODE" --mq-turns-per-traj "$MQ_TURNS"
+          --rank "$LORA_RANK" --alpha $((2 * LORA_RANK)))
+    if [ -n "$MAX_LEN" ]; then args+=(--max-len "$MAX_LEN"); fi
     if [ -n "$TRAIN_LIMIT" ]; then args+=(--limit "$TRAIN_LIMIT"); fi
     if [ "${NGPU:-1}" -gt 1 ]; then
       torchrun --standalone --nproc_per_node "$NGPU" "${args[@]}"

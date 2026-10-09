@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """LoRA SFT of an open-weights chat model on the teacher trajectories.
 
-Loss is applied to assistant turns only (the model learns to choose queries and
-hypotheses, not to predict oracle answers).
+Loss is applied to the model's own turns only (reasoning + query/hypothesis), never
+to the instructions or the oracle's answers.
 
-Thinking data (`think` scaffold, assistant turns carry reasoning_content) is
-trained per turn, matching inference where earlier reasoning is dropped:
+Thinking data (`think` scaffold, assistant turns carry reasoning_content):
+  --trajectory-mode full (default): each trajectory is ONE example and every model
+      turn is supervised. Earlier turns' reasoning stays in context, using
+      templates/qwen_keep_reasoning.jinja; serve with the same template
+      (vllm --chat-template) and keep reasoning in the eval history (--keep-reasoning).
+  --trajectory-mode per-turn: one example per selected turn, earlier reasoning
+      dropped as in Qwen's own template (all EQ turns + --mq-turns-per-traj MQ turns).
 
-    pip install "transformers>=4.46" "peft>=0.13" accelerate datasets torch
-    python scripts/train_hf_lora.py --model Qwen/Qwen3.5-4B \
-        --data data/think_v1/lstar/think --out runs/qwen3.5-4b-lstar
     python scripts/train_hf_lora.py --model Qwen/Qwen3.5-4B \
         --data data/think_v1/ttt/think --out runs/qwen3.5-4b-ttt
 
-Single GPU (40-80GB) for 4B with bf16 + gradient checkpointing.
-Serve for evaluation with vLLM (the reasoning parser keeps thinking out of the
-visible transcript, exactly as in training):
-    vllm serve Qwen/Qwen3.5-4B --language-model-only --enable-lora --max-lora-rank 32 \
-        --reasoning-parser qwen3 --lora-modules aal=runs/qwen3.5-4b-ttt/final --max-model-len 40960
+Vocabulary logits are computed in chunks and recomputed in backward, so memory does
+not grow with Qwen3.5's ~250k vocabulary times the sequence length.
 """
 from __future__ import annotations
 
@@ -76,18 +75,23 @@ def chat_ids(tok, msgs, add_gen, template_kwargs):
     return [int(x) for x in out]
 
 
-def make_span_trainer(Trainer):
-    """Trainer whose loss only computes vocabulary logits where they are needed.
+def make_chunked_loss_trainer(Trainer, lm_weight, chunk=2048):
+    """Trainer computing causal-LM cross-entropy only at supervised positions, in chunks.
 
-    Qwen3.5's vocabulary is ~250k, so full-sequence fp32 logits for an 8k-token
-    example are ~8 GB. Labels are -100 up to the supervised span (in per-turn mode
-    that is just the final turn), so we ask the model for logits only from the first
-    supervised position on (`logits_to_keep`) and compute cross-entropy ourselves.
+    The model's lm_head is replaced by Identity, so the forward pass returns final
+    hidden states (small: seq x hidden). We gather the supervised positions and apply
+    the (frozen) output projection `lm_weight` 2048 rows at a time under activation
+    checkpointing: each chunk's [rows x vocab] logits exist only briefly, in forward
+    and again in backward. Equal to the standard shifted-label loss.
     """
     import torch
     import torch.nn.functional as F
+    from torch.utils.checkpoint import checkpoint
 
-    class SpanLossTrainer(Trainer):
+    def ce_sum(h, w, t):
+        return F.cross_entropy((h @ w.t()).float(), t, reduction="sum")
+
+    class ChunkedLossTrainer(Trainer):
         def __init__(self, *a, **k):
             super().__init__(*a, **k)
             # we return a per-example mean; let the Trainer divide by grad-accum steps
@@ -96,20 +100,19 @@ def make_span_trainer(Trainer):
                 self.loss_is_scaled_for_ga = False
 
         def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-            labels = inputs["labels"]
-            L = labels.shape[1]
-            sup = (labels != -100).any(0).nonzero()
-            first = int(sup[0]) if len(sup) else L - 1
-            keep = min(L, L - first + 1)          # positions first-1 .. L-1 predict tokens first .. L-1
-            out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"],
-                        logits_to_keep=keep, use_cache=False)
-            logits = out.logits[:, :-1]
-            target = labels[:, L - keep + 1:]
-            loss = F.cross_entropy(logits.float().reshape(-1, logits.size(-1)), target.reshape(-1),
-                                   ignore_index=-100)
+            out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], use_cache=False)
+            hidden = out.logits[:, :-1]                # lm_head is Identity: these are hidden states
+            target = inputs["labels"][:, 1:]
+            mask = target != -100
+            h, t = hidden[mask], target[mask]
+            w = lm_weight.to(h.dtype)
+            total = h.new_zeros((), dtype=torch.float32)
+            for i in range(0, h.size(0), chunk):
+                total = total + checkpoint(ce_sum, h[i:i + chunk], w, t[i:i + chunk], use_reentrant=False)
+            loss = total / max(1, h.size(0))
             return (loss, out) if return_outputs else loss
 
-    return SpanLossTrainer
+    return ChunkedLossTrainer
 
 
 def load_jsonl(p):
@@ -205,12 +208,18 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--max-len", type=int, default=16384)
+    ap.add_argument("--trajectory-mode", choices=["full", "per-turn"], default="full",
+                    help="thinking data: supervise whole trajectories (default) or one turn per example")
+    ap.add_argument("--chat-template", default=os.path.join(os.path.dirname(__file__), "..", "templates",
+                                                            "qwen_keep_reasoning.jinja"),
+                    help="template used in full mode (keeps every turn's reasoning); 'model' = model's own")
+    ap.add_argument("--max-len", type=int, default=None,
+                    help="drop longer examples (default 49152 full mode, 16384 per-turn)")
     ap.add_argument("--epochs", type=float, default=2)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--rank", type=int, default=32)
     ap.add_argument("--alpha", type=int, default=64)
-    ap.add_argument("--batch-tokens", type=int, default=65536, help="approx tokens per optimizer step")
+    ap.add_argument("--batch-tokens", type=int, default=32768, help="approx tokens per optimizer step")
     ap.add_argument("--template-kwargs", default="{}", help='e.g. \'{"enable_thinking": false}\'')
     ap.add_argument("--target-modules", default=",".join(DEFAULT_TARGETS),
                     help="LoRA targets; names missing from a model are skipped (the Gated DeltaNet "
@@ -230,6 +239,9 @@ def main():
 
     tkw = json.loads(args.template_kwargs)
     tok = AutoTokenizer.from_pretrained(args.model)
+    full_mode = args.trajectory_mode == "full"
+    if args.max_len is None:
+        args.max_len = 49152 if full_mode else 16384
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
@@ -245,7 +257,21 @@ def main():
             return []
         recs = load_jsonl(p)[: args.limit]
         thinking = any("reasoning_content" in m for m in recs[0]["messages"])
-        if not thinking:
+        if thinking and full_mode:
+            if args.chat_template != "model" and not getattr(tok, "_aal_template_set", False):
+                tok.chat_template = open(args.chat_template).read()
+                tok._aal_template_set = True
+                print("chat template:", os.path.abspath(args.chat_template))
+            probe = [{"role": "user", "content": "q1"},
+                     {"role": "assistant", "reasoning_content": "PROBE_R1", "content": "a1"},
+                     {"role": "user", "content": "q2"},
+                     {"role": "assistant", "reasoning_content": "PROBE_R2", "content": "a2"}]
+            if "PROBE_R1" not in tok.apply_chat_template(probe, tokenize=False, **tkw):
+                raise SystemExit("this chat template drops earlier reasoning; full-trajectory mode needs "
+                                 "one that keeps it (see templates/qwen_keep_reasoning.jinja)")
+            eot = end_of_turn_id(tok, tkw)
+            out = [tokenize_with_mask(tok, r["messages"], tkw, args.max_len, eot) for r in recs]
+        elif not thinking:
             eot = end_of_turn_id(tok, tkw)
             out = [tokenize_with_mask(tok, r["messages"], tkw, args.max_len, eot) for r in recs]
         else:
@@ -260,7 +286,7 @@ def main():
                     out.append(tokenize_last_turn(tok, ex, tkw, args.max_len))
         kept = [x for x in out if x is not None]
         print(f"{split}: {len(kept)}/{len(out)} examples within {args.max_len} tokens "
-              f"({'per-turn thinking' if thinking else 'full trajectory'} mode, {len(recs)} trajectories)")
+              f"({'per-turn' if thinking and not full_mode else 'full-trajectory'} mode, {len(recs)} trajectories)")
         return kept
 
     train, val = build("train"), build("val")
@@ -321,6 +347,10 @@ def main():
         target_modules=[m for m in args.target_modules.split(",") if m],
     ))
     model.print_trainable_parameters()
+    # final projection is applied chunk-wise inside the loss (see make_chunked_loss_trainer)
+    base = model.get_base_model()
+    lm_weight = base.lm_head.weight.detach()
+    base.lm_head = torch.nn.Identity()
 
     targs = TrainingArguments(
         output_dir=args.out,
@@ -345,7 +375,7 @@ def main():
         ddp_find_unused_parameters=False,
     )
     random.Random(0).shuffle(train)
-    trainer = make_span_trainer(Trainer)(model=model, args=targs, train_dataset=DS(train),
+    trainer = make_chunked_loss_trainer(Trainer, lm_weight)(model=model, args=targs, train_dataset=DS(train),
                       eval_dataset=DS(val) if val else None, data_collator=collate)
     from transformers.trainer_utils import get_last_checkpoint
     last = get_last_checkpoint(args.out) if os.path.isdir(args.out) else None

@@ -155,10 +155,16 @@ python scripts/evaluate.py --backend vertex --model <endpoint> --project P --sca
 ```
 
 * **think**: the prompt is the paper's stateless prompt, and reasoning goes in
-  `reasoning_content`. Thinking models drop earlier turns' reasoning at
-  inference, so training is per turn: visible history plus that turn's reasoning
-  and action, with loss on that turn only. All EQ turns are kept, plus
-  `--mq-turns-per-traj` (default 8) sampled MQ turns per trajectory.
+  `reasoning_content`. Default training (`--trajectory-mode full`): each
+  trajectory is one example with loss on every model turn (reasoning and query),
+  and earlier turns' reasoning stays in context. Qwen's own template drops
+  reasoning after each user message, and the oracle's answers arrive as user
+  messages, so training and serving both use `templates/qwen_keep_reasoning.jinja`
+  (vLLM `--chat-template`), and the eval client puts each turn's reasoning back
+  into the history (`--keep-reasoning`). The vocabulary projection is applied in
+  2,048-row chunks with recomputation, so 40k-token trajectories fit on a 48 GB
+  GPU. `--trajectory-mode per-turn` is the alternative: one example per selected
+  turn, with earlier reasoning dropped as in Qwen's own format.
 * **thought**: the prompt asks for `<THOUGHT>` then `<TOOL_ACTION>`, and earlier
   thoughts stay in context, so whole trajectories are trained. Examples are at
   most ~30k tokens.

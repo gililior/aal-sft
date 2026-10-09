@@ -16,11 +16,17 @@ class _History:
         self.messages: List[Dict[str, str]] = []
         self.usage: List[Dict[str, Any]] = []
         self.reasoning: List[Optional[str]] = []
+        self.keep_reasoning = False   # put each turn's reasoning back into the history
 
     def send(self, text: str, step: Optional[int] = None) -> Dict[str, Any]:
         self.messages.append({"role": "user", "content": text})
         out = self._generate()
-        self.messages.append({"role": "assistant", "content": out})
+        hist = out
+        r = self.reasoning[-1] if (self.keep_reasoning and self.reasoning) else None
+        if r and r.strip():
+            # same rendering as training in full-trajectory mode (templates/qwen_keep_reasoning.jinja)
+            hist = f"<think>\n{r.strip()}\n</think>\n\n{(out or '').strip()}"
+        self.messages.append({"role": "assistant", "content": hist})
         return {"content": out}
 
     def _generate(self) -> str:
@@ -77,8 +83,9 @@ class OpenAICompatible(_History):
 
     def __init__(self, model: str, base_url: str, api_key: str = "EMPTY",
                  temperature: Optional[float] = None, max_tokens: int = 8192,
-                 extra_body: Optional[Dict[str, Any]] = None):
+                 extra_body: Optional[Dict[str, Any]] = None, keep_reasoning: bool = False):
         super().__init__()
+        self.keep_reasoning = keep_reasoning
         from openai import OpenAI
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.model_name = model
@@ -93,8 +100,8 @@ class OpenAICompatible(_History):
             model=self.model_name, messages=self.messages, **self.kw))
         if r.usage:
             self.usage.append({"in": r.usage.prompt_tokens, "out": r.usage.completion_tokens})
-        # With vLLM's --reasoning-parser the thinking arrives separately and is not
-        # kept in the visible history, matching how the think data was trained.
+        # With vLLM's --reasoning-parser the thinking arrives separately; send() puts it
+        # back into the history only when keep_reasoning is set (full-trajectory mode).
         msg = r.choices[0].message
         # vLLM puts it in `reasoning_content` (older) or `reasoning` (newer)
         self.reasoning.append(getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None))

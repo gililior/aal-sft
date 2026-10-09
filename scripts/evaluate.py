@@ -44,7 +44,7 @@ def make_model(a, n, seed):
         extra = json.loads(a["extra_body"]) if a["extra_body"] else None
         return models.OpenAICompatible(a["model"], a["base_url"], a["api_key"],
                                        temperature=a["temperature"], extra_body=extra,
-                                       max_tokens=a["max_tokens"])
+                                       max_tokens=a["max_tokens"], keep_reasoning=a["keep_reasoning"])
     raise ValueError(a["backend"])
 
 
@@ -141,6 +141,9 @@ def main():
     ap.add_argument("--replay-teacher", choices=["best", "lstar", "ttt"], default="best",
                     help="teacher backend only")
     ap.add_argument("--max-tokens", type=int, default=16384, help="openai backend: max output tokens per turn")
+    ap.add_argument("--keep-reasoning", action="store_true",
+                    help="openai backend: keep each turn's reasoning in the conversation history "
+                         "(matches full-trajectory training; serve with templates/qwen_keep_reasoning.jinja)")
     ap.add_argument("--n-states", default="2-9")
     ap.add_argument("--seeds", default="1-20")
     ap.add_argument("--budget-ratio", type=float, default=2.0)
