@@ -1,7 +1,7 @@
 # Agentic automata learning: decision log
 
 Live doc (editable, with comments): https://claude.ai/code/artifact/9c14fbcf-de7c-4877-9ebd-17ff8b692ecd
-This file is a copy kept in the project and in the repo (`docs/decision_log.md`); both are updated as the project evolves. Last updated 2026-10-08.
+This file is a copy kept in the project and in the repo (`docs/decision_log.md`); both are updated as the project evolves. Last updated 2026-10-09.
 
 ## Research question
 
@@ -51,6 +51,8 @@ There is one dataset per teacher (L* and TTT), each built from the same 2,110 tr
 ## SFT
 
 The default supervises every model turn of a trajectory in one example, with earlier reasoning kept in context.
+
+**SFT target, decided 2026-10-09:** actions plus algorithm state. L* and TTT only produce queries and hypotheses, so each turn's "reasoning" is the algorithm's internal state written out (observation table, discrimination tree, counterexample analysis), followed by the action. The model learns to make that state explicit before each move instead of inferring it silently, which is the skill the paper found missing.
 
 | Choice | Value | Why |
 | --- | --- | --- |
@@ -121,6 +123,7 @@ No full runs yet; only smoke tests on the cluster.
 - [ ] Add a query-cost term to the reward once success is reliable
 - [ ] DAgger: let the model run, ask L*/TTT for the next query at the states it reaches
 - [ ] Rejection-sampling fine-tuning: keep the model's own successful, efficient episodes
+- [ ] Ablation: SFT on actions only (thinking off), to measure how much writing out the algorithm state helps
 - [ ] Transfer: test tuned models on other tasks
 - [ ] Scale: Qwen3.5-9B
 - [ ] Gemini track: run `run_gemini.sh` from the cluster with your own Google Cloud login
