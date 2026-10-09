@@ -95,6 +95,7 @@ Everything runs on the school Slurm cluster with L40S GPUs (45 GB), 24-hour jobs
 | transformers v5: `apply_chat_template` returns a dict | Shared `chat_ids()` helper; fail-fast if sequences look too short |
 | transformers v5 removed `warmup_ratio` and `group_by_length` | `warmup_steps=0.03` |
 | Out of memory on long examples (~8 GB logits) | Chunked loss on supervised positions only |
+| RL smoke: output-projection weight left on CPU (taken before the model moved to GPU) | Take it after the move; same fix in SFT full-trajectory mode |
 
 **Measured speed:** ~80 s per optimizer step on 1 L40S in the old per-turn setup, roughly 4.7 s per 8k-token example. Base-model inference ran ~270 tokens/s with 4 concurrent episodes.
 

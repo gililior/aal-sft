@@ -88,6 +88,8 @@ def make_chunked_loss_trainer(Trainer, lm_weight, chunk=2048):
     import torch.nn.functional as F
     from torch.utils.checkpoint import checkpoint
 
+    w_cache = {}
+
     def ce_sum(h, w, t):
         return F.cross_entropy((h @ w.t()).float(), t, reduction="sum")
 
@@ -105,7 +107,11 @@ def make_chunked_loss_trainer(Trainer, lm_weight, chunk=2048):
             target = inputs["labels"][:, 1:]
             mask = target != -100
             h, t = hidden[mask], target[mask]
-            w = lm_weight.to(h.dtype)
+            # the Trainer moves the model to the GPU after lm_weight was taken; a detached
+            # tensor doesn't follow, so move it once and keep it
+            w = w_cache.get(h.device)
+            if w is None:
+                w = w_cache[h.device] = lm_weight.to(device=h.device, dtype=h.dtype)
             total = h.new_zeros((), dtype=torch.float32)
             for i in range(0, h.size(0), chunk):
                 total = total + checkpoint(ce_sum, h[i:i + chunk], w, t[i:i + chunk], use_reentrant=False)

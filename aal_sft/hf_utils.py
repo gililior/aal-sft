@@ -100,7 +100,7 @@ def chunked_ce_sum(hidden, weight, target, chunk=2048):
     def ce(h, w, t):
         return F.cross_entropy((h @ w.t()).float(), t, reduction="sum")
 
-    w = weight.to(hidden.dtype)
+    w = weight.to(device=hidden.device, dtype=hidden.dtype)   # no-op when already there
     total = hidden.new_zeros((), dtype=torch.float32)
     for i in range(0, hidden.size(0), chunk):
         total = total + checkpoint(ce, hidden[i:i + chunk], w, target[i:i + chunk], use_reentrant=False)

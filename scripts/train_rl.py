@@ -193,8 +193,8 @@ def main():
         hf_utils.load_adapter_for_training(model, os.path.join(state_dir, "adapter"))
     elif args.init_adapter:
         hf_utils.load_adapter_for_training(model, args.init_adapter)
-    lm_weight = hf_utils.detach_lm_head(model)
     model.to(dev)
+    lm_weight = hf_utils.detach_lm_head(model).to(dev)   # after .to(dev): a detached copy doesn't follow the model
     if rank == 0:
         model.print_trainable_parameters()
     params = [p for p in model.parameters() if p.requires_grad]
