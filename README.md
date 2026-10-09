@@ -36,6 +36,37 @@ checkpoints about 20 times per epoch: if a job is killed, run `submit_all.sh`
 again. Finished parts are skipped and training resumes from the latest
 checkpoint. Logs are in `logs/slurm-*.out`.
 
+## RL (GRPO with the oracle as reward)
+
+```bash
+# smoke test: 2 RL steps on small DFAs, 2 GPUs (1 rollout + 1 update), no eval
+sbatch --gres=gpu:l40s:2 --time=2:00:00 \
+  --export=ALL,NAME=rl_smoke,STEPS=2,DFAS_PER_STEP=2,GROUP_SIZE=4,SKIP_EVAL=1 scripts/slurm/rl.sbatch
+
+# the experiment: base eval, per-turn SFT on TTT, RL from base, RL from SFT
+bash scripts/slurm/submit_rl.sh
+```
+
+- **Format:** Qwen's native chat format: each turn sees every earlier query and
+  oracle answer, but not earlier reasoning. Same harness messages as the
+  benchmark. Code: `aal_sft/rl_env.py`, `scripts/train_rl.py`.
+- **Reward:** 1 if the final equivalence query is correct, else 0.
+- **Credit:** advantage = reward minus the group mean over 8 episodes of the
+  same DFA (Dr. GRPO), applied to every turn (`--turns-per-episode` subsamples).
+  Loss normalized by a constant, so long and short turns aren't reweighted.
+- **Steps:** 8 DFAs × 8 episodes, one on-policy update. Curriculum starts at ≤4
+  states and adds a size when the largest one passes 50% twice in a row.
+  Training DFAs never equal an eval DFA.
+- **Hardware:** vLLM on GPU 0 with the adapter hot-loaded each step
+  (`/v1/load_lora_adapter`); updates on the remaining GPUs with DDP.
+- **Resuming and output:** the state is saved every step, so a resubmit
+  resumes. Per-step stats go to `runs/<tag>-<name>/rl_log.jsonl`. When training
+  finishes, the job evaluates `final/` on the 160 instances.
+- **Tests:** `tests/test_rl_env.py` checks the episode loop against the real
+  oracle with a scripted policy.
+
+Decisions and next steps are tracked in `docs/decision_log.md`.
+
 ## Open thinking model on a GPU VM (one command)
 
 ```bash
