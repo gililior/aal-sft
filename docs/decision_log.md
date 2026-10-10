@@ -66,7 +66,7 @@ The default supervises every model turn of a trajectory in one example, with ear
 
 ## RL
 
-The main track, decided 2026-10-08: GRPO with the oracle's verdict as the reward, run from both the base model and an SFT model. Code pushed 2026-10-08 (`scripts/train_rl.py`, `scripts/slurm/rl.sbatch`); not yet run on the cluster.
+The main track, decided 2026-10-08: GRPO with the oracle's verdict as the reward, run from both the base model and an SFT model. Code pushed 2026-10-08 (`scripts/train_rl.py`, `scripts/slurm/rl.sbatch`); smoke-tested on the cluster 2026-10-09 (works end to end; rollouts are too slow for the full runs as configured, see Results).
 
 | Choice | Decision | Why |
 | --- | --- | --- |
@@ -107,13 +107,15 @@ No full runs yet; only smoke tests on the cluster.
 
 | Date | Run | Outcome |
 | --- | --- | --- |
+| 2026-10-09 | Smoke: RL from base, 2 steps × 2 DFAs × 4 episodes, 2 L40S (1 vLLM, 1 update) | Loop works end to end (adapter hot-load, rollouts, update, checkpoint). Step 0 (3–4 states): 0/8 solved, so no learning signal (0 samples). Step 1 (2 states): 3/8 solved, 116 turn samples, update 98 s. 15–23% invalid turns, ~850 generated tokens per turn. Rollouts took 4,440 s and 1,642 s for 8 episodes: far too slow for 200 steps × 64 episodes as configured |
 | 2026-10-08 | Smoke: base Qwen3.5-4B eval, 4 instances (2–3 states, seeds 1–2), keep-reasoning format | 2 of 4 solved (50%); 17.5% invalid turns; Δ +7.5 calls on successes |
 | 2026-10-08 | Smoke: SFT on 20 TTT trajectories | Out of memory at step 9 of 16 (fixed: chunked loss). Rerun completed end to end (train, adapter rename, vLLM load, eval): 0 of 4 solved vs 2 of 4 for base. Too small to mean anything. Format checked and fine (per-turn mode): reasoning mimics TTT's traces and every answer is a valid query, but the model doesn't update its state (repeats the 1-state tree after a counterexample), the paper's state-tracking failure |
 | 2026-10-08 | Smoke: same, first attempt | Tokenization bug ("mean length 2 tokens") and `warmup_ratio` crash (fixed) |
 
 ## Things to try next
 
-- [ ] Smoke-test RL: 2 steps on small DFAs with 2 GPUs (README has the command)
+- [x] Smoke-test RL: 2 steps on small DFAs with 2 GPUs (README has the command)
+- [ ] Speed up RL rollouts before the 200-step runs: check vLLM's generation throughput in the log (base eval ran ~67 tokens/s per episode), cap reasoning length and turns per episode, give rollouts more GPUs
 - [ ] Base eval in per-turn (native) format: the paper-faithful baseline for RL
 - [ ] SFT per-turn on TTT: the RL warm start
 - [ ] RL from base and RL from SFT, same budget
